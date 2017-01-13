@@ -790,7 +790,7 @@ int main (int argc, const char** argv)
     {
         puts("ERROR");
         fprintf(stderr, "No reply from the bootloader, or invalid reply received: %d\n", res);
-        fprintf(stderr, "Please make sure that PGND and PGC are connected, replug the devide and try again\n");
+        fprintf(stderr, "Please make sure that PGND and PGC are connected, replug the device and try again\n");
         goto Error;
     }
     puts("OK\n"); //extra LF for spacing
