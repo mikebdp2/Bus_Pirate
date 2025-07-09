@@ -117,7 +117,7 @@
         <platform>2</platform>
       </toolsSet>
       <packs>
-        <pack name="PIC24F-GA-GB_DFP" vendor="Microchip" version="1.9.336"/>
+        <pack name="PIC24F-GA-GB_DFP" vendor="Microchip" version="1.10.375"/>
       </packs>
       <compileType>
         <linkerTool>
@@ -413,7 +413,7 @@
         <platform>2</platform>
       </toolsSet>
       <packs>
-        <pack name="PIC24F-GA-GB_DFP" vendor="Microchip" version="1.9.336"/>
+        <pack name="PIC24F-GA-GB_DFP" vendor="Microchip" version="1.10.375"/>
       </packs>
       <compileType>
         <linkerTool>
