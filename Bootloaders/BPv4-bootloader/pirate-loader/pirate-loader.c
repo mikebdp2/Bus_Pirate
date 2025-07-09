@@ -2,9 +2,13 @@
 
  Pirate-Loader for Bootloader v4
 
- Version  : 1.0.3
+ Version  : 1.0.4
 
  Changelog:
+
+  + 2024-03-31 - Improve the error reporting and do not show the errors after
+                 the successful actions like hello or flashing new firmware.
+                 Compatible with bootloader 4.12 but works with 4.10 too.
 
   + 2016-08-22 - Migrated to CMake, minor fixes.
 
@@ -17,7 +21,7 @@
   + 2010-01-22 - Added loader version number to the console output and source code
 
   + 2010-01-19 - Fixed BigEndian incompatibility
-			   - Added programming simulate switch ( --simulate ) for data verification
+  + 2010-01-19 - Added programming simulate switch ( --simulate ) for data verification
 
   + 2010-01-18 - Initial release
 
@@ -57,7 +61,7 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#define PIRATE_LOADER_VERSION "1.0.3"
+#define PIRATE_LOADER_VERSION "1.0.4"
 
 #define STR_EXPAND(tok) #tok
 #define OS_NAME(tok) STR_EXPAND(tok)
@@ -76,7 +80,6 @@ int write(int fd, const void* buf, int len)
     HANDLE hCom = (HANDLE)fd;
     int res = 0;
     unsigned long bwritten = 0;
-
 
     res = WriteFile(hCom, buf, len, &bwritten, NULL);
 
@@ -197,8 +200,10 @@ typedef unsigned long  uint32;
 #endif
 
 #define BOOTLOADER_HELLO_STR "\xC1"
-#define BOOTLOADER_OK 0x4B
+#define BOOTLOADER_OK 'K'
 #define BOOTLOADER_PROT 'P'
+#define BOOTLOADER_CHECKSUM 'N'
+
 #define PIC_WORD_SIZE  (3)
 #define PIC_NUM_ROWS_IN_PAGE  8
 #define PIC_NUM_WORDS_IN_ROW 64
@@ -484,41 +489,44 @@ int sendCommandAndWaitForResponse(int fd, uint8 *command)
     res = readWithTimeout(fd, response, 1, 5);
     if( res != 1 )
     {
-        puts("ERROR");
+        puts("ERROR, timeout");
         return -1;
     }
-    else if (response[0]== BOOTLOADER_PROT)
-    {
-        printf("(SKIPPED by bootloader)...");
-        return 0;
 
-    }
-    else if ( response[0] != BOOTLOADER_OK )
+    switch (response[0])
     {
-        printf("ERROR [%02x]\n", response[0]);
-        return -1;
-    }
-    else
-    {
-        return 0;
+        case BOOTLOADER_OK:
+            return 0;
+            break;
+
+        case BOOTLOADER_PROT:
+            printf("(SKIPPED by bootloader)...");
+            return 0;
+            break;
+
+        case BOOTLOADER_CHECKSUM:
+            printf("cmd checksum error...\n");
+            return -1;
+            break;
+
+        default:
+            printf("ERROR [0x%02x]\n", response[0]);
+            return -1;
+            break;
     }
 }
-
 
 int sendFirmware(int fd, uint8* data, uint8* pages_used)
 {
     uint32 u_addr;
-
 
     uint32 page  = 0;
     uint32 done  = 0;
     uint32 row   = 0;
     uint8  command[256] = {0};
 
-
     for( page=0; page<PIC_NUM_PAGES; page++)
     {
-
         u_addr = page * ( PIC_NUM_WORDS_IN_ROW * 2 * PIC_NUM_ROWS_IN_PAGE );
 
         if( pages_used[page] != 1 )
@@ -652,7 +660,6 @@ int parseCommandLine(int argc, const char** argv)
 
     for(i=1; i<argc; i++)
     {
-
         if( !strncmp(argv[i], "--hex=", 6) )
         {
             g_hexfile_path = argv[i] + 6;
@@ -776,6 +783,26 @@ int main (int argc, const char** argv)
 
     if( dev_fd < 0 )
     {
+        switch( errno )
+        {
+            case EACCES: // permission issues
+                printf("permission issue\n");
+                break;
+
+            case EEXIST: // file already exists and you used O_CREAT and O_EXCL
+                printf("already exists issue\n");
+                break;
+
+            case EFAULT: // bad path
+                printf("bad path issue\n");
+                break;
+
+            default:
+                printf("unknown failure\n");
+                break;
+        }
+
+        printf("file read failed\n");
         puts("ERROR");
         fprintf(stderr, "Could not open %s\n", g_device_path);
         goto Error;
@@ -811,7 +838,7 @@ int main (int argc, const char** argv)
 
     printf("Bootloader version: %d,%02d\n", buffer[1], buffer[2]);
 
-    printf("Device ID [%02x]:",buffer[0]);
+    printf("Device ID [0x%02x]:",buffer[0]);
     switch(buffer[0])
     {
 //    case 0xd4:
@@ -958,7 +985,7 @@ int main (int argc, const char** argv)
         //    __PIC24FJ256GB106__
 #define IS_24FJ                 1
         flashsize = 0x2AC00;
-        eesizeb  =         0;
+        eesizeb  = 0;
         blstartaddr = 0x400L;
         blendaddr = 0x23FFL;
         break;
@@ -1235,7 +1262,7 @@ int main (int argc, const char** argv)
 
         if( res > 0 )
         {
-            puts("\nFirmware updated successfully :)!");
+            puts("\nFirmware updated successfully! :)");
             //printf("Use screen %s 115200 to verify\n", g_device_path);
         }
         else
@@ -1243,8 +1270,19 @@ int main (int argc, const char** argv)
             puts("\nError updating firmware :(");
             goto Error;
         }
-
     }
+
+    uint8  command[6] = {0};
+
+    command[0] = 1;	// fake data
+    command[1] = 2;
+    command[2] = 3;
+    command[COMMAND_OFFSET] = 0xff;
+    command[LENGTH_OFFSET ] = 0x01; // 1 byte, CRC
+    command[PAYLOAD_OFFSET] = makeCrc(command, 5);
+
+    // send byebye (cmd: 0xff)
+    int ret = sendCommandAndWaitForResponse(dev_fd, command);
 
 Finished:
     if( bin_buff )
